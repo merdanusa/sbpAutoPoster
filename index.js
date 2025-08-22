@@ -45,6 +45,20 @@ bot.use(async (ctx, next) => {
   await next();
 });
 
+bot.use(async (ctx, next) => {
+  const userId = ctx.from?.id;
+  if (!userId) return;
+  const userResult = await getUser(userId);
+  if (userResult.success && userResult.data.banned) {
+    const banMessage =
+      userResult.data.ban_message ||
+      "Sen ban boldyň, git aňyňdan ýala, ýaramaz! 🤬";
+    await ctx.reply(banMessage);
+    return;
+  }
+  await next();
+});
+
 bot.use(session());
 
 async function connectMongo() {
@@ -146,6 +160,15 @@ async function initSchedules() {
               `${sch.chat_id} kanalyna ýazmakda ýalňyşlyk:`,
               err.description || err.message
             );
+            if (
+              err.description.includes("forbidden") ||
+              err.description.includes("not allowed")
+            ) {
+              await bot.telegram.sendMessage(
+                sch.user_id,
+                `Kanalda ${sch.chat_id} administratory däl, administratory et we täzeden synan! Wagt gutardy, meni administratory etmegi ýatdan çykarmaň! 🚫`
+              );
+            }
             if (err.code === 429) {
               console.log(
                 "Çäk ýetdi, 5 sekuntdan soň gaýtadan synanyşýar... ⏳"
@@ -187,6 +210,9 @@ async function getUser(userId) {
       vpn_channel: null,
       last_vpn_sent: null,
       created_at: Date.now(),
+      spam_attempts: 0,
+      banned: false,
+      ban_message: null,
     };
     const result = await usersCollection.insertOne(user);
     if (result.acknowledged) {
@@ -199,6 +225,9 @@ async function getUser(userId) {
       return { success: false, message: "Ulanyjy döretmek başarmady." };
     }
   }
+  if (typeof user.spam_attempts === "undefined") user.spam_attempts = 0;
+  if (typeof user.banned === "undefined") user.banned = false;
+  if (typeof user.ban_message === "undefined") user.ban_message = null;
   return { success: true, data: user };
 }
 
@@ -260,8 +289,7 @@ function sanitizeInput(input) {
 async function getMainKeyboard(effectiveSub, isAdmin) {
   let buttons = [["Profil 👤"]];
   if (effectiveSub !== "trial_expired") {
-    buttons.push(["Maslahat goş 💫", "Maslahatlary gör 📋"]);
-    buttons.push(["VPNlary gör 📋"]);
+    buttons.push(["Maslahat goş 💫", "Maslahatlary gör 📋", "VPNlary gör 📋"]);
     if (effectiveSub === "ultra" || isAdmin) {
       buttons.push(["VPN goş 🌐"]);
     }
@@ -491,9 +519,21 @@ bot.hears("Panel 🎛️", async (ctx) => {
   await ctx.reply(
     "Admin paneline hoş geldiňiz! 🎛️\nAşakdaky amallary ýerine ýetiriň:",
     Markup.inlineKeyboard([
-      [Markup.button.callback("VPN goş 🌐", "admin_add_vpn")],
-      [Markup.button.callback("VPN poz 🗑️", "admin_delete_vpn")],
+      [
+        Markup.button.callback("VPN goş 🌐", "admin_add_vpn"),
+        Markup.button.callback("VPN poz 🗑️", "admin_delete_vpn"),
+      ],
       [Markup.button.callback("Promo goş 🎟️", "admin_add_promo")],
+      [
+        Markup.button.callback("Ulanyjy ban et 🚫", "admin_ban"),
+        Markup.button.callback("Ulanyjy bany aç 🚪", "admin_unban"),
+      ],
+      [
+        Markup.button.callback(
+          "Ban habary bellemek 📝",
+          "admin_set_ban_message"
+        ),
+      ],
     ])
   );
   return { success: true, message: "Admin paneli üstünlikli görkezildi." };
@@ -563,6 +603,57 @@ bot.action("admin_add_promo", async (ctx) => {
     "Abunalyk görnüşini, ulanyjy ID-ni we günleri ýazyň (mysal: ultra 123456789 30): 🎟️"
   );
   return { success: true, message: "Promo goşma soragy üstünlikli işledildi." };
+});
+
+bot.action("admin_ban", async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) {
+    await ctx.answerCbQuery("Bu funksiýa diňe adminler üçin. 🚫");
+    return { success: false, message: "Ygtyýarsyz funksiýa." };
+  }
+  await ctx.answerCbQuery();
+  ctx.session = {
+    ...ctx.session,
+    state: "admin_ban_username",
+    started: ctx.session?.started || true,
+  };
+  await ctx.reply(
+    "Ban edilmeli ulanyjynyň @adyny ýazyň (mysal: @username): 🚫"
+  );
+  return { success: true, message: "Ban soragy üstünlikli işledildi." };
+});
+
+bot.action("admin_unban", async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) {
+    await ctx.answerCbQuery("Bu funksiýa diňe adminler üçin. 🚫");
+    return { success: false, message: "Ygtyýarsyz funksiýa." };
+  }
+  await ctx.answerCbQuery();
+  ctx.session = {
+    ...ctx.session,
+    state: "admin_unban_username",
+    started: ctx.session?.started || true,
+  };
+  await ctx.reply(
+    "Bany açylmaly ulanyjynyň @adyny ýazyň (mysal: @username): 🚪"
+  );
+  return { success: true, message: "Unban soragy üstünlikli işledildi." };
+});
+
+bot.action("admin_set_ban_message", async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) {
+    await ctx.answerCbQuery("Bu funksiýa diňe adminler üçin. 🚫");
+    return { success: false, message: "Ygtyýarsyz funksiýa." };
+  }
+  await ctx.answerCbQuery();
+  ctx.session = {
+    ...ctx.session,
+    state: "admin_set_ban_message_username",
+    started: ctx.session?.started || true,
+  };
+  await ctx.reply(
+    "Habar bellenmeli ulanyjynyň @adyny ýazyň (mysal: @username): 📝"
+  );
+  return { success: true, message: "Ban habary soragy üstünlikli işledildi." };
 });
 
 bot.action("add", async (ctx) => {
@@ -861,6 +952,56 @@ bot.on("text", async (ctx) => {
       await showMainKeyboard(ctx);
       return { success: false, message: "Maksimum maslahat sany doldu." };
     }
+    const userResult = await getUser(userId);
+    const user = userResult.data;
+    try {
+      const admins = await bot.telegram.getChatAdministrators(chat_id);
+      const botInfo = await bot.telegram.getMe();
+      const botId = botInfo.id;
+      const isBotAdmin = admins.some(
+        (admin) =>
+          admin.user.id === botId &&
+          admin.can_post_messages &&
+          admin.can_delete_messages
+      );
+      if (!isBotAdmin) {
+        ctx.session = { started: ctx.session.started };
+        await ctx.reply(
+          "Bot kanal administratory däl ýa-da ýeterlik ygtyýarlar ýok. Boty administratory edip goşuň we ýazgy we pozmak hukugyny beriň. Soň täzeden synan. 🚫"
+        );
+        await showMainKeyboard(ctx);
+        return { success: false, message: "Bot administratory däl." };
+      }
+      const owner = admins.find((admin) => admin.status === "creator");
+      if (!owner || owner.user.id !== userId) {
+        user.spam_attempts += 1;
+        await updateUser(user);
+        const remaining = 3 - user.spam_attempts;
+        if (user.spam_attempts >= 3) {
+          user.banned = true;
+          await updateUser(user);
+          await ctx.reply(
+            "Başga biriniň kanalyny spam etmek synanyşygyňyz sebäpli ban boldyňyz! Git aňyňdan ýala! 🤬"
+          );
+          return { success: false, message: "Ulanyjy ban edildi." };
+        } else {
+          ctx.session = { started: ctx.session.started };
+          await ctx.reply(
+            `Başga biriniň kanalyny spam etmek isleýärsiňiz! Size ${remaining} synanyşyk galdy. 🚫`
+          );
+          await showMainKeyboard(ctx);
+          return { success: false, message: "Spam synanyşygy." };
+        }
+      }
+    } catch (err) {
+      console.error("Kanal adminlerini almak başarmady:", err.message);
+      ctx.session = { started: ctx.session.started };
+      await ctx.reply(
+        "Bot kanal agzasy däl ýa-da adminleri almak başarmady. Boty kanal agzasy we administratory edip goşuň. Soň täzeden synan. 🚫"
+      );
+      await showMainKeyboard(ctx);
+      return { success: false, message: "Kanal adminlerini almak başarmady." };
+    }
     ctx.session.add = { chat_id };
     ctx.session.state = "add_text";
     await ctx.reply("Habaryň tekstini ýazyň: ✍️");
@@ -1130,6 +1271,179 @@ bot.on("text", async (ctx) => {
     ctx.session = { started: ctx.session.started };
     await showMainKeyboard(ctx);
     return { success: true, message: "Abunalyk üstünlikli täzelendi." };
+  } else if (state === "admin_ban_username") {
+    if (ctx.from.id !== ADMIN_ID) {
+      ctx.session = { started: ctx.session.started };
+      await ctx.reply("Bu funksiýa diňe adminler üçin. 🚫");
+      return { success: false, message: "Ygtyýarsyz funksiýa." };
+    }
+    const username = sanitizeInput(ctx.message.text);
+    if (!username.startsWith("@")) {
+      await ctx.reply("Nädogry format. Mysal: @username. Täzeden synan. 🚫");
+      return { success: false, message: "Nädogry username formaty." };
+    }
+    try {
+      const chat = await bot.telegram.getChat(username);
+      if (chat.type !== "private") {
+        await ctx.reply("Bu ulanyjy däl, kanal ýa-da toparyň ady. 🚫");
+        return { success: false, message: "Nädogry chat tipleri." };
+      }
+      const targetUserId = chat.id;
+      const targetUserResult = await getUser(targetUserId);
+      if (!targetUserResult.success) {
+        await ctx.reply(`Ýalňyşlyk: ${targetUserResult.message} 😔`);
+        ctx.session = { started: ctx.session.started };
+        await showMainKeyboard(ctx);
+        return targetUserResult;
+      }
+      const targetUser = targetUserResult.data;
+      targetUser.banned = true;
+      const updateResult = await updateUser(targetUser);
+      if (!updateResult.success) {
+        await ctx.reply(`Ýalňyşlyk: ${updateResult.message} 😔`);
+        ctx.session = { started: ctx.session.started };
+        await showMainKeyboard(ctx);
+        return updateResult;
+      }
+      await ctx.reply(`Ulanyjy ${username} ban edildi. 🚫`);
+      ctx.session = { started: ctx.session.started };
+      await showMainKeyboard(ctx);
+      return { success: true, message: "Ulanyjy üstünlikli ban edildi." };
+    } catch (err) {
+      await ctx.reply(
+        `Ulanyjy tapylmady ýa-da ýalňyşlyk: ${
+          err.description || err.message
+        } 🚫`
+      );
+      ctx.session = { started: ctx.session.started };
+      await showMainKeyboard(ctx);
+      return { success: false, message: `Ulanyjy tapylmady: ${err.message}` };
+    }
+  } else if (state === "admin_unban_username") {
+    if (ctx.from.id !== ADMIN_ID) {
+      ctx.session = { started: ctx.session.started };
+      await ctx.reply("Bu funksiýa diňe adminler üçin. 🚫");
+      return { success: false, message: "Ygtyýarsyz funksiýa." };
+    }
+    const username = sanitizeInput(ctx.message.text);
+    if (!username.startsWith("@")) {
+      await ctx.reply("Nädogry format. Mysal: @username. Täzeden synan. 🚫");
+      return { success: false, message: "Nädogry username formaty." };
+    }
+    try {
+      const chat = await bot.telegram.getChat(username);
+      if (chat.type !== "private") {
+        await ctx.reply("Bu ulanyjy däl, kanal ýa-da toparyň ady. 🚫");
+        return { success: false, message: "Nädogry chat tipleri." };
+      }
+      const targetUserId = chat.id;
+      const targetUserResult = await getUser(targetUserId);
+      if (!targetUserResult.success) {
+        await ctx.reply(`Ýalňyşlyk: ${targetUserResult.message} 😔`);
+        ctx.session = { started: ctx.session.started };
+        await showMainKeyboard(ctx);
+        return targetUserResult;
+      }
+      const targetUser = targetUserResult.data;
+      targetUser.banned = false;
+      const updateResult = await updateUser(targetUser);
+      if (!updateResult.success) {
+        await ctx.reply(`Ýalňyşlyk: ${updateResult.message} 😔`);
+        ctx.session = { started: ctx.session.started };
+        await showMainKeyboard(ctx);
+        return updateResult;
+      }
+      await ctx.reply(`Ulanyjy ${username} bany açyldy. 🚪`);
+      ctx.session = { started: ctx.session.started };
+      await showMainKeyboard(ctx);
+      return { success: true, message: "Ulanyjy üstünlikli unban edildi." };
+    } catch (err) {
+      await ctx.reply(
+        `Ulanyjy tapylmady ýa-da ýalňyşlyk: ${
+          err.description || err.message
+        } 🚫`
+      );
+      ctx.session = { started: ctx.session.started };
+      await showMainKeyboard(ctx);
+      return { success: false, message: `Ulanyjy tapylmady: ${err.message}` };
+    }
+  } else if (state === "admin_set_ban_message_username") {
+    if (ctx.from.id !== ADMIN_ID) {
+      ctx.session = { started: ctx.session.started };
+      await ctx.reply("Bu funksiýa diňe adminler üçin. 🚫");
+      return { success: false, message: "Ygtyýarsyz funksiýa." };
+    }
+    const username = sanitizeInput(ctx.message.text);
+    if (!username.startsWith("@")) {
+      await ctx.reply("Nädogry format. Mysal: @username. Täzeden synan. 🚫");
+      return { success: false, message: "Nädogry username formaty." };
+    }
+    try {
+      const chat = await bot.telegram.getChat(username);
+      if (chat.type !== "private") {
+        await ctx.reply("Bu ulanyjy däl, kanal ýa-da toparyň ady. 🚫");
+        return { success: false, message: "Nädogry chat tipleri." };
+      }
+      const targetUserId = chat.id;
+      const targetUserResult = await getUser(targetUserId);
+      if (!targetUserResult.success) {
+        await ctx.reply(`Ýalňyşlyk: ${targetUserResult.message} 😔`);
+        ctx.session = { started: ctx.session.started };
+        await showMainKeyboard(ctx);
+        return targetUserResult;
+      }
+      ctx.session.target_user_id_for_message = targetUserId;
+      ctx.session.state = "admin_set_ban_message_text";
+      await ctx.reply("Ulanyjy üçin ban habaryny ýazyň: 📝");
+      return { success: true, message: "Ban habary tekst soragy işledildi." };
+    } catch (err) {
+      await ctx.reply(
+        `Ulanyjy tapylmady ýa-da ýalňyşlyk: ${
+          err.description || err.message
+        } 🚫`
+      );
+      ctx.session = { started: ctx.session.started };
+      await showMainKeyboard(ctx);
+      return { success: false, message: `Ulanyjy tapylmady: ${err.message}` };
+    }
+  } else if (state === "admin_set_ban_message_text") {
+    if (ctx.from.id !== ADMIN_ID) {
+      ctx.session = { started: ctx.session.started };
+      await ctx.reply("Bu funksiýa diňe adminler üçin. 🚫");
+      return { success: false, message: "Ygtyýarsyz funksiýa." };
+    }
+    const message = sanitizeInput(ctx.message.text);
+    if (!message) {
+      await ctx.reply("Habar boş bolmaly däl. 🚫");
+      return { success: false, message: "Habar boş bolmaly däl." };
+    }
+    const targetUserId = ctx.session.target_user_id_for_message;
+    if (!targetUserId) {
+      await ctx.reply("Ýalňyşlyk: Ulanyjy tapylmady. 😔");
+      ctx.session = { started: ctx.session.started };
+      await showMainKeyboard(ctx);
+      return { success: false, message: "Ulanyjy tapylmady." };
+    }
+    const targetUserResult = await getUser(targetUserId);
+    if (!targetUserResult.success) {
+      await ctx.reply(`Ýalňyşlyk: ${targetUserResult.message} 😔`);
+      ctx.session = { started: ctx.session.started };
+      await showMainKeyboard(ctx);
+      return targetUserResult;
+    }
+    const targetUser = targetUserResult.data;
+    targetUser.ban_message = message;
+    const updateResult = await updateUser(targetUser);
+    if (!updateResult.success) {
+      await ctx.reply(`Ýalňyşlyk: ${updateResult.message} 😔`);
+      ctx.session = { started: ctx.session.started };
+      await showMainKeyboard(ctx);
+      return updateResult;
+    }
+    await ctx.reply(`Ulanyjy üçin ban habary bellenildi. 📝`);
+    ctx.session = { started: ctx.session.started };
+    await showMainKeyboard(ctx);
+    return { success: true, message: "Ban habary üstünlikli bellenildi." };
   }
   return { success: false, message: "Bilinmedik ýagdaý." };
 });
