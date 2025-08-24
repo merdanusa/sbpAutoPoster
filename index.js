@@ -24,6 +24,7 @@ let db;
 let schedulesCollection;
 let usersCollection;
 let settingsCollection;
+let transactionsCollection;
 let intervals = {};
 let vpnInterval;
 let schedules = [];
@@ -69,6 +70,7 @@ async function connectMongo() {
     schedulesCollection = db.collection("schedules");
     usersCollection = db.collection("users");
     settingsCollection = db.collection("settings");
+    transactionsCollection = db.collection("transactions");
     const loadedSchedules = await schedulesCollection.find({}).toArray();
     schedules = loadedSchedules.map((sch) => {
       const newSch = { ...sch, id: sch._id };
@@ -140,7 +142,7 @@ async function initSchedules() {
             let message;
             if (sch.media_url) {
               console.log(
-                `${sch.chat_id} kanalyna ýazýar: ${sch.text}, media: ${sch.media_url} 🖼️`
+                `${sch.chat_id} kanalyna ýazýar: ${sch.text}, media: ${sch.media_url}`
               );
               message = await bot.telegram.sendPhoto(
                 sch.chat_id,
@@ -150,7 +152,7 @@ async function initSchedules() {
                 }
               );
             } else {
-              console.log(`${sch.chat_id} kanalyna ýazýar: ${sch.text} ✍️`);
+              console.log(`${sch.chat_id} kanalyna ýazýar: ${sch.text}`);
               message = await bot.telegram.sendMessage(sch.chat_id, sch.text);
             }
             sch.last_message_id = message.message_id;
@@ -287,14 +289,18 @@ function sanitizeInput(input) {
 }
 
 async function getMainKeyboard(effectiveSub, isAdmin) {
-  let buttons = [["Profil 👤"]];
+  let buttons = [["Profil 👤", "Dükan 🛒"]];
   if (effectiveSub !== "trial_expired") {
     buttons.push(["Maslahat goş 💫", "Maslahatlary gör 📋", "VPNlary gör 📋"]);
+    const conditionalButtons = [];
     if (effectiveSub === "ultra" || isAdmin) {
-      buttons.push(["VPN goş 🌐"]);
+      conditionalButtons.push("VPN goş 🌐");
     }
     if (isAdmin) {
-      buttons.push(["Panel 🎛️"]);
+      conditionalButtons.push("Panel 🎛️");
+    }
+    if (conditionalButtons.length > 0) {
+      buttons.push(conditionalButtons);
     }
   }
   return Markup.keyboard(buttons).resize();
@@ -339,6 +345,12 @@ bot.start(async (ctx) => {
   await showMainKeyboard(ctx);
 });
 
+bot.command("pp", async (ctx) => {
+  await ctx.reply(
+    "Gizlinlik syýasaty: 📜\n\nBiz siziň maglumatlaryňyzy howpsuz saklaýarys. Ulanyjy ID-si, abunalyk derejesi, maslahat nastroykalary we beýleki zerur maglumatlar MongoDB bazasynda saklanýar. Bu maglumatlar diňe botyň dogry işlemegi üçin ulanylýar we hiç haçan üçünji taraplara berilmeýär. Tölegler Telegram Stars arkaly amala aşyrylýar we Telegramyň gizlinlik syýasaty boýunça dolandyrylýar. Boty ulanmak bilen, siz bu şertleri kabul edýärsiňiz."
+  );
+});
+
 bot.hears("Profil 👤", async (ctx) => {
   const userId = ctx.from.id;
   const userResult = await getUser(userId);
@@ -364,18 +376,45 @@ Soňky VPN ugradylan: ${
       ? new Date(user.last_vpn_sent).toLocaleString()
       : "Hiç haçan"
   }`;
-  await ctx.reply(subInfo);
+  await ctx.reply(
+    subInfo,
+    Markup.inlineKeyboard([
+      [Markup.button.callback("Meniň söwdalarym 💳", "my_transactions")],
+    ])
+  );
   return {
     success: true,
     message: "Profil maglumatlary üstünlikli görkezildi.",
   };
 });
 
+bot.action("my_transactions", async (ctx) => {
+  await ctx.answerCbQuery();
+  const userId = ctx.from.id;
+  const trans = await transactionsCollection
+    .find({ user_id: userId })
+    .toArray();
+  if (trans.length === 0) {
+    await ctx.reply("Hiç hili söwda ýok. 😔");
+    return { success: true, message: "Söwda ýok." };
+  }
+  for (const t of trans) {
+    const info = `Söwda ID: ${t._id}\nDereje: ${
+      t.type.charAt(0).toUpperCase() + t.type.slice(1)
+    }\nMöhlet: ${t.period === "week" ? "Hepde" : "Aý"}\nStars: ${
+      t.stars
+    }\nSene: ${new Date(t.date).toLocaleString()}`;
+    await ctx.reply(info);
+  }
+  return { success: true, message: "Söwdalar görkezildi." };
+});
+
 bot.hears("Maslahat goş 💫", async (ctx) => {
   const effectiveSub = await getEffectiveSub(ctx.from.id);
   if (effectiveSub === "trial_expired") {
     await ctx.reply(
-      "Synag möhletiňiz gutardy! 😔 Boty ulanmak üçin abuna boluň."
+      "Synag möhletiňiz gutardy! 😔 Boty ulanmak üçin abuna boluň.",
+      Markup.inlineKeyboard([[Markup.button.callback("Dükan 🛒", "shop")]])
     );
     return { success: false, message: "Synag möhleti gutardy." };
   }
@@ -511,6 +550,174 @@ bot.hears("VPN goş 🌐", async (ctx) => {
   };
 });
 
+async function showShop(ctx) {
+  await ctx.reply(
+    "Abunalyk derejesini saýlaň: 🌟",
+    Markup.inlineKeyboard([
+      [Markup.button.callback("VIP 👑", "shop_vip")],
+      [Markup.button.callback("Ultra VIP 🌟", "shop_ultra")],
+    ])
+  );
+}
+
+bot.hears("Dükan 🛒", showShop);
+
+bot.action("shop", async (ctx) => {
+  await ctx.answerCbQuery();
+  await showShop(ctx);
+});
+
+bot.action("shop_vip", async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply(
+    `VIP abunalygy mümkinçilikleri:\n- Iň az wagt aralygy: 90 sekunt\n- Maksimum maslahat sany: 3\n- VPN goldawy: Ýok\n\nMöhleti saýlaň:`,
+    Markup.inlineKeyboard([
+      [Markup.button.callback("1 Hepde (25 ⭐)", "pay_vip_week")],
+      [Markup.button.callback("1 Aý (100 ⭐)", "pay_vip_month")],
+    ])
+  );
+});
+
+bot.action("shop_ultra", async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply(
+    `Ultra VIP abunalygy mümkinçilikleri:\n- Iň az wagt aralygy: 30 sekunt\n- Maksimum maslahat sany: 5\n- VPN goldawy: Hawa\n\nMöhleti saýlaň:`,
+    Markup.inlineKeyboard([
+      [Markup.button.callback("1 Hepde (35 ⭐)", "pay_ultra_week")],
+      [Markup.button.callback("1 Aý (150 ⭐)", "pay_ultra_month")],
+    ])
+  );
+});
+
+bot.action("pay_vip_week", async (ctx) => {
+  await ctx.answerCbQuery();
+  const title = "VIP abunalygy 1 hepde";
+  const desc =
+    "VIP abunalygy 1 hepde üçin. Töleg etmek bilen, gizlinlik syýasatymyz bilen ylalaşýarsyňyz. /pp";
+  const payload = JSON.stringify({
+    type: "vip",
+    period: "week",
+    user_id: ctx.from.id,
+  });
+  const prices = [{ label: "VIP 1 hepde", amount: 25 }];
+  await ctx.telegram.sendInvoice(ctx.from.id, {
+    title,
+    description: desc,
+    payload,
+    currency: "XTR",
+    prices,
+    start_parameter: "pay",
+    provider_token: "",
+  });
+});
+
+bot.action("pay_vip_month", async (ctx) => {
+  await ctx.answerCbQuery();
+  const title = "VIP abunalygy 1 aý";
+  const desc =
+    "VIP abunalygy 1 aý üçin. Töleg etmek bilen, gizlinlik syýasatymyz bilen ylalaşýarsyňyz. /pp";
+  const payload = JSON.stringify({
+    type: "vip",
+    period: "month",
+    user_id: ctx.from.id,
+  });
+  const prices = [{ label: "VIP 1 aý", amount: 100 }];
+  await ctx.telegram.sendInvoice(ctx.from.id, {
+    title,
+    description: desc,
+    payload,
+    currency: "XTR",
+    prices,
+    start_parameter: "pay",
+    provider_token: "",
+  });
+});
+
+bot.action("pay_ultra_week", async (ctx) => {
+  await ctx.answerCbQuery();
+  const title = "Ultra VIP abunalygy 1 hepde";
+  const desc =
+    "Ultra VIP abunalygy 1 hepde üçin. Töleg etmek bilen, gizlinlik syýasatymyz bilen ylalaşýarsyňyz. /pp";
+  const payload = JSON.stringify({
+    type: "ultra",
+    period: "week",
+    user_id: ctx.from.id,
+  });
+  const prices = [{ label: "Ultra VIP 1 hepde", amount: 35 }];
+  await ctx.telegram.sendInvoice(ctx.from.id, {
+    title,
+    description: desc,
+    payload,
+    currency: "XTR",
+    prices,
+    start_parameter: "pay",
+    provider_token: "",
+  });
+});
+
+bot.action("pay_ultra_month", async (ctx) => {
+  await ctx.answerCbQuery();
+  const title = "Ultra VIP abunalygy 1 aý";
+  const desc =
+    "Ultra VIP abunalygy 1 aý üçin. Töleg etmek bilen, gizlinlik syýasatymyz bilen ylalaşýarsyňyz. /pp";
+  const payload = JSON.stringify({
+    type: "ultra",
+    period: "month",
+    user_id: ctx.from.id,
+  });
+  const prices = [{ label: "Ultra VIP 1 aý", amount: 150 }];
+  await ctx.telegram.sendInvoice(ctx.from.id, {
+    title,
+    description: desc,
+    payload,
+    currency: "XTR",
+    prices,
+    start_parameter: "pay",
+    provider_token: "",
+  });
+});
+
+bot.on("pre_checkout_query", async (ctx) => {
+  await ctx.answerPreCheckoutQuery(true);
+});
+
+bot.on("successful_payment", async (ctx) => {
+  const payment = ctx.message.successful_payment;
+  let payload;
+  try {
+    payload = JSON.parse(payment.invoice_payload);
+  } catch (err) {
+    console.error("Payload parse ýalňyşlyk:", err);
+    return;
+  }
+  const days = payload.period === "week" ? 7 : 30;
+  const expiration = Date.now() + days * 86400000;
+  const userResult = await getUser(payload.user_id);
+  if (!userResult.success) return;
+  const user = userResult.data;
+  user.subscription = payload.type;
+  user.expiration = expiration;
+  await updateUser(user);
+  const trans = {
+    _id: uuidv4(),
+    user_id: payload.user_id,
+    type: payload.type,
+    period: payload.period,
+    stars: payment.total_amount,
+    date: Date.now(),
+    telegram_charge_id: payment.telegram_payment_charge_id,
+  };
+  await transactionsCollection.insertOne(trans);
+  await ctx.reply(
+    `Sag boluň tölegiňiz üçin! 🎉\nSöwda ID: ${
+      trans._id
+    }\nAbunalyk: ${payload.type.toUpperCase()} (${
+      payload.period === "week" ? "Hepde" : "Aý"
+    })\nGutaryş senesi: ${new Date(expiration).toLocaleString()}`
+  );
+  await initSchedules();
+});
+
 bot.hears("Panel 🎛️", async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) {
     await ctx.reply("Bu funksiýa diňe adminler üçin. 🚫");
@@ -534,9 +741,22 @@ bot.hears("Panel 🎛️", async (ctx) => {
           "admin_set_ban_message"
         ),
       ],
+      [Markup.button.callback("Stars çykar 💰", "admin_withdraw")],
     ])
   );
   return { success: true, message: "Admin paneli üstünlikli görkezildi." };
+});
+
+bot.action("admin_withdraw", async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) {
+    await ctx.answerCbQuery("Bu funksiýa diňe adminler üçin. 🚫");
+    return { success: false, message: "Ygtyýarsyz funksiýa." };
+  }
+  await ctx.answerCbQuery();
+  await ctx.reply(
+    "Stars çykarmak üçin @PremiumBot-a ýüz tutuň we balansyňyzy çykaryň. 💰"
+  );
+  return { success: true, message: "Çykarma maglumaty görkezildi." };
 });
 
 bot.action("admin_add_vpn", async (ctx) => {
