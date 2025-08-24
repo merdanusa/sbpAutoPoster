@@ -11,7 +11,7 @@ const MONGO_URI =
 const COVER_PHOTO = path.join(__dirname, "media/cover.jpg");
 const ADMIN_ID = 7437546679;
 const TRIAL_DAYS = 14;
-const ANTISPAM_COOLDOWN = 2000;
+const ANTISPAM_COOLDOWN = 1000;
 
 const SUBSCRIPTIONS = {
   standard: { minInterval: 300, maxSchedules: 1, vpn: false },
@@ -345,9 +345,9 @@ bot.start(async (ctx) => {
   await showMainKeyboard(ctx);
 });
 
-bot.command("pp", async (ctx) => {
+bot.command("pp_cmd", async (ctx) => {
   await ctx.reply(
-    "Gizlinlik syýasaty: 📜\n\nBiz siziň maglumatlaryňyzy howpsuz saklaýarys. Ulanyjy ID-si, abunalyk derejesi, maslahat nastroykalary we beýleki zerur maglumatlar MongoDB bazasynda saklanýar. Bu maglumatlar diňe botyň dogry işlemegi üçin ulanylýar we hiç haçan üçünji taraplara berilmeýär. Tölegler Telegram Stars arkaly amala aşyrylýar we Telegramyň gizlinlik syýasaty boýunça dolandyrylýar. Boty ulanmak bilen, siz bu şertleri kabul edýärsiňiz."
+    "Gizlinlik syýasaty: 📜\n\nBiz siziň maglumatlaryňyzy howpsuz saklaýarys. Ulanyjy ID-si, abunalyk derejesi, maslahat nastroykalary we beýleki zerur maglumatlar MongoDB bazasynda saklanýar. Bu maglumatlar diňe botyň dogry işlemegi üçin ulanylýar we hiç haçan üçünji taraplara berilmeýär. Tölegler Telegram Stars arkaly amala aşyrylýar we Telegramyň gizlinlik syýasaty boýunça dolandyrylýar.We edilen töleg yzyna gaýtarylyp berilmeýär! Boty ulanmak bilen, siz bu şertleri kabul edýärsiňiz."
   );
 });
 
@@ -552,7 +552,7 @@ bot.hears("VPN goş 🌐", async (ctx) => {
 
 async function showShop(ctx) {
   await ctx.reply(
-    "Abunalyk derejesini saýlaň: 🌟",
+    "Dükana hoş geldiňiz 🛒\nAbunalyk derejesini saýlaň: 🌟",
     Markup.inlineKeyboard([
       [Markup.button.callback("VIP 👑", "shop_vip")],
       [Markup.button.callback("Ultra VIP 🌟", "shop_ultra")],
@@ -591,15 +591,19 @@ bot.action("shop_ultra", async (ctx) => {
 
 bot.action("pay_vip_week", async (ctx) => {
   await ctx.answerCbQuery();
+
   const title = "VIP abunalygy 1 hepde";
   const desc =
-    "VIP abunalygy 1 hepde üçin. Töleg etmek bilen, gizlinlik syýasatymyz bilen ylalaşýarsyňyz. /pp";
+    "VIP abunalygy 1 hepde üçin. Töleg etmek bilen, gizlinlik syýasatymyz bilen ylalaşýarsyňyz!";
+
   const payload = JSON.stringify({
     type: "vip",
     period: "week",
     user_id: ctx.from.id,
   });
+
   const prices = [{ label: "VIP 1 hepde", amount: 25 }];
+
   await ctx.telegram.sendInvoice(ctx.from.id, {
     title,
     description: desc,
@@ -607,7 +611,7 @@ bot.action("pay_vip_week", async (ctx) => {
     currency: "XTR",
     prices,
     start_parameter: "pay",
-    provider_token: "",
+    provider_token: process.env.PROVIDER_TOKEN,
   });
 });
 
@@ -615,7 +619,7 @@ bot.action("pay_vip_month", async (ctx) => {
   await ctx.answerCbQuery();
   const title = "VIP abunalygy 1 aý";
   const desc =
-    "VIP abunalygy 1 aý üçin. Töleg etmek bilen, gizlinlik syýasatymyz bilen ylalaşýarsyňyz. /pp";
+    "VIP abunalygy 1 aý üçin. Töleg etmek bilen, gizlinlik syýasatymyz bilen ylalaşýarsyňyz!";
   const payload = JSON.stringify({
     type: "vip",
     period: "month",
@@ -629,7 +633,7 @@ bot.action("pay_vip_month", async (ctx) => {
     currency: "XTR",
     prices,
     start_parameter: "pay",
-    provider_token: "",
+    provider_token: process.env.PROVIDER_TOKEN,
   });
 });
 
@@ -637,7 +641,7 @@ bot.action("pay_ultra_week", async (ctx) => {
   await ctx.answerCbQuery();
   const title = "Ultra VIP abunalygy 1 hepde";
   const desc =
-    "Ultra VIP abunalygy 1 hepde üçin. Töleg etmek bilen, gizlinlik syýasatymyz bilen ylalaşýarsyňyz. /pp";
+    "Ultra VIP abunalygy 1 hepde üçin. Töleg etmek bilen, gizlinlik syýasatymyz bilen ylalaşýarsyňyz!";
   const payload = JSON.stringify({
     type: "ultra",
     period: "week",
@@ -651,7 +655,7 @@ bot.action("pay_ultra_week", async (ctx) => {
     currency: "XTR",
     prices,
     start_parameter: "pay",
-    provider_token: "",
+    provider_token: process.env.PROVIDER_TOKEN,
   });
 });
 
@@ -659,7 +663,7 @@ bot.action("pay_ultra_month", async (ctx) => {
   await ctx.answerCbQuery();
   const title = "Ultra VIP abunalygy 1 aý";
   const desc =
-    "Ultra VIP abunalygy 1 aý üçin. Töleg etmek bilen, gizlinlik syýasatymyz bilen ylalaşýarsyňyz. /pp";
+    "Ultra VIP abunalygy 1 aý üçin. Töleg etmek bilen, gizlinlik syýasatymyz bilen ylalaşýarsyňyz!";
   const payload = JSON.stringify({
     type: "ultra",
     period: "month",
@@ -673,7 +677,7 @@ bot.action("pay_ultra_month", async (ctx) => {
     currency: "XTR",
     prices,
     start_parameter: "pay",
-    provider_token: "",
+    provider_token: process.env.PROVIDER_TOKEN,
   });
 });
 
