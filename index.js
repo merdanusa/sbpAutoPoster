@@ -1453,7 +1453,7 @@ bot.on("text", async (ctx) => {
       return setResult;
     }
 
-    await ctx.reply(currentVpn, { parse_mode: "Markdown" });
+    await ctx.reply(currentVpn, { parse_mode: "MarkdownV2" });
     await ctx.reply("VPN konfigurasiýasy täzelendi. 🎉");
 
     ctx.session = { started: ctx.session.started };
