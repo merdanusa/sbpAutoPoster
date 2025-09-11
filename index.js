@@ -1435,7 +1435,7 @@ bot.on("text", async (ctx) => {
       return { success: false, message: "Ygtyýarsyz funksiýa." };
     }
 
-    const vpnCode = sanitizeInput(`${ctx.message.text}`);
+    const vpnCode = sanitizeInput(ctx.message.text);
     if (!vpnCode) {
       await ctx.reply("VPN kody ýazyň. 🚫");
       return { success: false, message: "VPN kody berilmedi." };
