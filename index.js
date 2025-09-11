@@ -706,7 +706,7 @@ bot.on("successful_payment", async (ctx) => {
   await initSchedules();
 });
 
-bot.command("broadcast", async (ctx) => {
+bot.action("broadcast", async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) {
     await ctx.reply("Bu funksiýa diňe adminler üçin. 🚫");
     return;
@@ -748,7 +748,7 @@ bot.hears("Panel 🎛️", async (ctx) => {
         ),
         Markup.button.callback("Promo goş 🎟️", "admin_add_promo"),
       ],
-      [Markup.button.callback("Mahabat 📡", "/broadcast")],
+      [Markup.button.callback("Mahabat 📡", "broadcast")],
     ])
   );
   return { success: true, message: "Admin paneli üstünlikli görkezildi." };
