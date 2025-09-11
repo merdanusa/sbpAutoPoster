@@ -1455,7 +1455,7 @@ bot.on("text", async (ctx) => {
       return { success: false, message: "VPN kody berilmedi." };
     }
     const title = ctx.session.vpn_title;
-    currentVpn = `${title}\n\`${vpnCode}\`\n#sbp31PosterBot`;
+    currentVpn = `${title}\n\`${`${vpnCode}`}\`\n\n#sbp31PosterBot`;
     const setResult = await setSetting("current_vpn", currentVpn);
     if (!setResult.success) {
       await ctx.reply(`Ýalňyşlyk: ${setResult.message} 😔`);
