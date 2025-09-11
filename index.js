@@ -1428,23 +1428,34 @@ bot.on("text", async (ctx) => {
       await showMainKeyboard(ctx);
       return { success: false, message: `Nädogry kanal ID: ${err.message}` };
     }
+  } else if (state === "admin_vpn_title") {
+    if (ctx.from.id !== ADMIN_ID) {
+      ctx.session = { started: ctx.session.started };
+      await ctx.reply("Bu funksiýa diňe adminler üçin. 🚫");
+      return { success: false, message: "Ygtyýarsyz funksiýa." };
+    }
+    const title = sanitizeInput(ctx.message.text);
+    if (!title) {
+      await ctx.reply("Title ýazyň. 🚫");
+      return { success: false, message: "Title berilmedi." };
+    }
+    ctx.session.vpn_title = title;
+    ctx.session.state = "admin_vpn_config";
+    await ctx.reply("VPN kody ýazyň: 🌐");
+    return { success: true, message: "VPN title kabul edildi." };
   } else if (state === "admin_vpn_config") {
     if (ctx.from.id !== ADMIN_ID) {
       ctx.session = { started: ctx.session.started };
       await ctx.reply("Bu funksiýa diňe adminler üçin. 🚫");
       return { success: false, message: "Ygtyýarsyz funksiýa." };
     }
-
     const vpnCode = sanitizeInput(ctx.message.text);
     if (!vpnCode) {
       await ctx.reply("VPN kody ýazyň. 🚫");
       return { success: false, message: "VPN kody berilmedi." };
     }
-
     const title = ctx.session.vpn_title;
-
-    currentVpn = `${title}\n\`\`\`\n${vpnCode}\n\`\`\`\n#sbp31PosterBot`;
-
+    currentVpn = `${title}\n\`${vpnCode}\`\n\n#sbp31PosterBot`;
     const setResult = await setSetting("current_vpn", currentVpn);
     if (!setResult.success) {
       await ctx.reply(`Ýalňyşlyk: ${setResult.message} 😔`);
@@ -1452,13 +1463,10 @@ bot.on("text", async (ctx) => {
       await showMainKeyboard(ctx);
       return setResult;
     }
-
-    await ctx.reply(currentVpn, { parse_mode: "MarkdownV2" });
+    await ctx.reply(currentVpn, { parse_mode: "Markdown" });
     await ctx.reply("VPN konfigurasiýasy täzelendi. 🎉");
-
     ctx.session = { started: ctx.session.started };
     await showMainKeyboard(ctx);
-
     return {
       success: true,
       message: "VPN konfigurasiýasy üstünlikli täzelendi.",
