@@ -1455,7 +1455,7 @@ bot.on("text", async (ctx) => {
       return { success: false, message: "VPN kody berilmedi." };
     }
     const title = ctx.session.vpn_title;
-    currentVpn = `${title}\n\`${vpnCode}\`\n\n#sbp31PosterBot`;
+    currentVpn = `${title}\n${vpnCode}\n#sbp31PosterBot`;
     const setResult = await setSetting("current_vpn", currentVpn);
     if (!setResult.success) {
       await ctx.reply(`Ýalňyşlyk: ${setResult.message} 😔`);
@@ -1463,7 +1463,19 @@ bot.on("text", async (ctx) => {
       await showMainKeyboard(ctx);
       return setResult;
     }
-    await ctx.reply(currentVpn, { parse_mode: "Markdown" });
+    await ctx.reply(currentVpn, {
+      parse_mode: "Markdown",
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: "📋 Copy Code",
+              callback_data: "copy_vpn",
+            },
+          ],
+        ],
+      },
+    });
     await ctx.reply("VPN konfigurasiýasy täzelendi. 🎉");
     ctx.session = { started: ctx.session.started };
     await showMainKeyboard(ctx);
@@ -1530,6 +1542,54 @@ bot.on("text", async (ctx) => {
     ctx.session = { started: ctx.session.started };
     await showMainKeyboard(ctx);
     return { success: true, message: "Abunalyk üstünlikli täzelendi." };
+  } else if (state === "admin_ban_username") {
+    if (ctx.from.id !== ADMIN_ID) {
+      ctx.session = { started: ctx.session.started };
+      await ctx.reply("Bu funksiýa diňe adminler üçin. 🚫");
+      return { success: false, message: "Ygtyýarsyz funksiýa." };
+    }
+    const username = sanitizeInput(ctx.message.text);
+    if (!username.startsWith("@")) {
+      await ctx.reply("Nädogry format. Mysal: @username. Täzeden synan. 🚫");
+      return { success: false, message: "Nädogry username formaty." };
+    }
+    try {
+      const chat = await bot.telegram.getChat(username);
+      if (chat.type !== "private") {
+        await ctx.reply("Bu ulanyjy däl, kanal ýa-da toparyň ady. 🚫");
+        return { success: false, message: "Nädogry chat tipleri." };
+      }
+      const targetUserId = chat.id;
+      const targetUserResult = await getUser(targetUserId);
+      if (!targetUserResult.success) {
+        await ctx.reply(`Ýalňyşlyk: ${targetUserResult.message} 😔`);
+        ctx.session = { started: ctx.session.started };
+        await showMainKeyboard(ctx);
+        return targetUserResult;
+      }
+      const targetUser = targetUserResult.data;
+      targetUser.banned = true;
+      const updateResult = await updateUser(targetUser);
+      if (!updateResult.success) {
+        await ctx.reply(`Ýalňyşlyk: ${updateResult.message} 😔`);
+        ctx.session = { started: ctx.session.started };
+        await showMainKeyboard(ctx);
+        return updateResult;
+      }
+      await ctx.reply(`Ulanyjy ${username} ban edildi. 🚫`);
+      ctx.session = { started: ctx.session.started };
+      await showMainKeyboard(ctx);
+      return { success: true, message: "Ulanyjy üstünlikli ban edildi." };
+    } catch (err) {
+      await ctx.reply(
+        `Ulanyjy tapylmady ýa-da ýalňyşlyk: ${
+          err.description || err.message
+        } 🚫`
+      );
+      ctx.session = { started: ctx.session.started };
+      await showMainKeyboard(ctx);
+      return { success: false, message: `Ulanyjy tapylmady: ${err.message}` };
+    }
   } else if (state === "admin_ban_username") {
     if (ctx.from.id !== ADMIN_ID) {
       ctx.session = { started: ctx.session.started };
