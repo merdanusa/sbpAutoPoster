@@ -25,8 +25,11 @@ let schedulesCollection;
 let usersCollection;
 let settingsCollection;
 let transactionsCollection;
+let weeklyWinnersCollection;
 let intervals = {};
 let vpnInterval;
+let weeklyGiftInterval;
+let reminderInterval;
 let schedules = [];
 let currentVpn = "";
 let lastActionTimestamps = new Map();
@@ -39,7 +42,12 @@ bot.use(async (ctx, next) => {
   const now = Date.now();
   const lastAction = lastActionTimestamps.get(userId) || 0;
   if (now - lastAction < ANTISPAM_COOLDOWN) {
-    await ctx.reply("Gaty köp hereket, garaşyň! ⏳");
+    const msg = await ctx.reply("Gaty köp hereket, garaşyň! ⏳");
+    setTimeout(async () => {
+      try {
+        await ctx.deleteMessage(msg.message_id);
+      } catch (err) {}
+    }, 1000);
     return;
   }
   lastActionTimestamps.set(userId, now);
@@ -71,6 +79,7 @@ async function connectMongo() {
     usersCollection = db.collection("users");
     settingsCollection = db.collection("settings");
     transactionsCollection = db.collection("transactions");
+    weeklyWinnersCollection = db.collection("weekly_winners");
     const loadedSchedules = await schedulesCollection.find({}).toArray();
     schedules = loadedSchedules.map((sch) => {
       const newSch = { ...sch, id: sch._id };
@@ -80,16 +89,11 @@ async function connectMongo() {
     });
     const vpnSetting = await settingsCollection.findOne({ _id: "current_vpn" });
     currentVpn = vpnSetting ? vpnSetting.value : "";
-    console.log(
-      "MongoDB baglantysy üstünlikli ýerine ýetirildi, ýüklenen maslahatlar:",
-      schedules.length
-    );
     return {
       success: true,
       message: "MongoDB baglantysy üstünlikli ýerine ýetirildi.",
     };
   } catch (err) {
-    console.error("MongoDB baglantysy başarmady:", err.message);
     return {
       success: false,
       message: `MongoDB baglantysy başarmady: ${err.message}`,
@@ -108,10 +112,8 @@ async function saveSchedules() {
         { upsert: true }
       );
     }
-    console.log("Maslahatlar üstünlikli ýazyldy! 📋");
     return { success: true, message: "Maslahatlar üstünlikli ýazyldy." };
   } catch (err) {
-    console.error("Maslahatlary ýazmakda ýalňyşlyk:", err.message);
     return {
       success: false,
       message: `Maslahatlary ýazmakda ýalňyşlyk: ${err.message}`,
@@ -132,18 +134,10 @@ async function initSchedules() {
             if (sch.last_message_id) {
               await bot.telegram
                 .deleteMessage(sch.chat_id, sch.last_message_id)
-                .catch((err) => {
-                  console.error(
-                    `${sch.chat_id} kanalynyň ${sch.last_message_id} ID-li habaryny pozmak başarmady:`,
-                    err.description || err.message
-                  );
-                });
+                .catch((err) => {});
             }
             let message;
             if (sch.media_url) {
-              console.log(
-                `${sch.chat_id} kanalyna ýazýar: ${sch.text}, media: ${sch.media_url}`
-              );
               message = await bot.telegram.sendPhoto(
                 sch.chat_id,
                 sch.media_url,
@@ -152,16 +146,11 @@ async function initSchedules() {
                 }
               );
             } else {
-              console.log(`${sch.chat_id} kanalyna ýazýar: ${sch.text}`);
               message = await bot.telegram.sendMessage(sch.chat_id, sch.text);
             }
             sch.last_message_id = message.message_id;
             await saveSchedules();
           } catch (err) {
-            console.error(
-              `${sch.chat_id} kanalyna ýazmakda ýalňyşlyk:`,
-              err.description || err.message
-            );
             if (
               err.description.includes("forbidden") ||
               err.description.includes("not allowed")
@@ -172,29 +161,16 @@ async function initSchedules() {
               );
             }
             if (err.code === 429) {
-              console.log(
-                "Çäk ýetdi, 5 sekuntdan soň gaýtadan synanyşýar... ⏳"
-              );
               setTimeout(() => {
                 if (intervals[sch.id]) intervals[sch.id]();
               }, 5000);
             }
           }
         }, Math.max(sch.interval * 1000, 30000));
-      } catch (err) {
-        console.error(
-          `${index} ID-li maslahaty ${sch.chat_id} kanaly üçin başlatmak başarmady:`,
-          err.description || err.message
-        );
-      }
+      } catch (err) {}
     }
-    console.log(
-      "Maslahatlar başlatyldy, işjeň aralyklar:",
-      Object.keys(intervals).length
-    );
     return { success: true, message: "Maslahatlar üstünlikli başlatyldy." };
   } catch (err) {
-    console.error("Maslahatlary başlatmak başarmady:", err.message);
     return {
       success: false,
       message: `Maslahatlary başlatmak başarmady: ${err.message}`,
@@ -270,7 +246,7 @@ async function getEffectiveSub(userId) {
 
 async function setSetting(key, value) {
   try {
-    const result = await settingsCollection.updateOne(
+    await settingsCollection.updateOne(
       { _id: key },
       { $set: { value } },
       { upsert: true }
@@ -323,7 +299,6 @@ async function showMainKeyboard(ctx) {
     );
     return { success: true, message: "Baş menýu üstünlikli görkezildi." };
   } catch (err) {
-    console.error("Surat ugratmak başarmady:", err.message);
     await ctx.reply(
       effectiveSub === "trial_expired"
         ? "Synag möhletiňiz gutardy! 😔 Boty ulanmak üçin abuna boluň."
@@ -340,8 +315,16 @@ async function showMainKeyboard(ctx) {
 bot.start(async (ctx) => {
   if (ctx.session?.started) return;
   ctx.session = { started: true };
-  console.log("Bot ulanyjy üçin başlady:", ctx.from?.id);
-  await getUser(ctx.from.id);
+  const userId = ctx.from.id;
+  const username = ctx.from.username ? `@${ctx.from.username}` : null;
+  const userResult = await getUser(userId);
+  if (userResult.success) {
+    const user = userResult.data;
+    if (!user.username) {
+      user.username = username;
+      await updateUser(user);
+    }
+  }
   await showMainKeyboard(ctx);
 });
 
@@ -362,6 +345,7 @@ bot.hears("Profil 👤", async (ctx) => {
   const effectiveSub = await getEffectiveSub(userId);
   const subInfo = `👤 Profil maglumatlary:
 Ulanyjy ID: ${user._id}
+Ady: ${user.username || "Ýok"}
 Abunalyk: ${effectiveSub.charAt(0).toUpperCase() + effectiveSub.slice(1)}
 ${
   user.expiration
@@ -722,6 +706,18 @@ bot.on("successful_payment", async (ctx) => {
   await initSchedules();
 });
 
+bot.command("broadcast", async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) {
+    await ctx.reply("Bu funksiýa diňe adminler üçin. 🚫");
+    return;
+  }
+  ctx.session = {
+    state: "broadcast_message",
+    started: ctx.session?.started || true,
+  };
+  await ctx.reply("Ähli ulanyjylara iberiljek habary ýazyň: 📢");
+});
+
 bot.hears("Panel 🎛️", async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) {
     await ctx.reply("Bu funksiýa diňe adminler üçin. 🚫");
@@ -734,7 +730,13 @@ bot.hears("Panel 🎛️", async (ctx) => {
         Markup.button.callback("VPN goş 🌐", "admin_add_vpn"),
         Markup.button.callback("VPN poz 🗑️", "admin_delete_vpn"),
       ],
-      [Markup.button.callback("Promo goş 🎟️", "admin_add_promo")],
+      [
+        Markup.button.callback("Stars çykar 💰", "admin_withdraw"),
+        Markup.button.callback(
+          "Hepdelik utuş taryhy 📜",
+          "admin_weekly_history"
+        ),
+      ],
       [
         Markup.button.callback("Ulanyjy ban et 🚫", "admin_ban"),
         Markup.button.callback("Ulanyjy bany aç 🚪", "admin_unban"),
@@ -744,11 +746,32 @@ bot.hears("Panel 🎛️", async (ctx) => {
           "Ban habary bellemek 📝",
           "admin_set_ban_message"
         ),
+        Markup.button.callback("Promo goş 🎟️", "admin_add_promo"),
       ],
-      [Markup.button.callback("Stars çykar 💰", "admin_withdraw")],
+      [Markup.button.callback("Mahabat 📡", "/broadcast")],
     ])
   );
   return { success: true, message: "Admin paneli üstünlikli görkezildi." };
+});
+
+bot.action("admin_weekly_history", async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) {
+    await ctx.answerCbQuery("Bu funksiýa diňe adminler üçin. 🚫");
+    return;
+  }
+  await ctx.answerCbQuery();
+  const winners = await weeklyWinnersCollection.find({}).toArray();
+  if (winners.length === 0) {
+    await ctx.reply("Hiç hili hepdelik utuş taryhy ýok. 😔");
+    return;
+  }
+  let message = "Hepdelik utuş taryhy: 📜\n";
+  for (const winner of winners) {
+    message += `Ulanyjy: ${winner.username || winner.user_id}, Sene: ${new Date(
+      winner.date
+    ).toLocaleString()}\n`;
+  }
+  await ctx.reply(message);
 });
 
 bot.action("admin_withdraw", async (ctx) => {
@@ -771,13 +794,13 @@ bot.action("admin_add_vpn", async (ctx) => {
   await ctx.answerCbQuery();
   ctx.session = {
     ...ctx.session,
-    state: "admin_vpn_config",
+    state: "admin_vpn_title",
     started: ctx.session?.started || true,
   };
-  await ctx.reply("VPN konfigurasiýasyny ýazyň (mysal: vpnblahblah): 🌐");
+  await ctx.reply("VPN adyny (title) ýazyň: 📝");
   return {
     success: true,
-    message: "VPN konfigurasiýa soragy üstünlikli işledildi.",
+    message: "VPN title soragy üstünlikli işledildi.",
   };
 });
 
@@ -1135,7 +1158,6 @@ bot.on("text", async (ctx) => {
   const userId = ctx.from.id;
   const effectiveSub = await getEffectiveSub(userId);
   if (!state) {
-    console.log("Sessiya ýagdaýy tapylmady, ulanyjy:", ctx.from?.id);
     await showMainKeyboard(ctx);
     return { success: false, message: "Sessiya ýagdaýy tapylmady." };
   }
@@ -1218,7 +1240,6 @@ bot.on("text", async (ctx) => {
         }
       }
     } catch (err) {
-      console.error("Kanal adminlerini almak başarmady:", err.message);
       ctx.session = { started: ctx.session.started };
       await ctx.reply(
         "Bot kanal agzasy däl ýa-da adminleri almak başarmady. Boty kanal agzasy we administratory edip goşuň. Soň täzeden synan. 🚫"
@@ -1279,10 +1300,6 @@ bot.on("text", async (ctx) => {
       await showMainKeyboard(ctx);
       return { success: true, message: "Maslahat üstünlikli goşuldy." };
     } catch (err) {
-      console.error(
-        `${addData.chat_id} kanaly üçin maslahat goşmak başarmady:`,
-        err.description || err.message
-      );
       await ctx.reply(
         `Maslahat goşmak başarmady: ${err.description || err.message} 😔`
       );
@@ -1395,14 +1412,9 @@ bot.on("text", async (ctx) => {
           await bot.telegram.sendMessage(channel, currentVpn);
           user.last_vpn_sent = Date.now();
           await updateUser(user);
-          console.log(`VPN ${channel} kanalyna ugradyldy, ulanyjy: ${userId}`);
         } catch (err) {
           await ctx.reply(
             `VPN ugratmak başarmady: ${err.description || err.message} 😔`
-          );
-          console.error(
-            `VPN ${channel} kanalyna ugratmak başarmady:`,
-            err.message
           );
         }
       }
@@ -1416,19 +1428,35 @@ bot.on("text", async (ctx) => {
       await showMainKeyboard(ctx);
       return { success: false, message: `Nädogry kanal ID: ${err.message}` };
     }
+  } else if (state === "admin_vpn_title") {
+    if (ctx.from.id !== ADMIN_ID) {
+      ctx.session = { started: ctx.session.started };
+      await ctx.reply("Bu funksiýa diňe adminler üçin. 🚫");
+      return { success: false, message: "Ygtyýarsyz funksiýa." };
+    }
+    const title = sanitizeInput(ctx.message.text);
+    if (!title) {
+      await ctx.reply("Title ýazyň. 🚫");
+      return { success: false, message: "Title berilmedi." };
+    }
+    ctx.session.vpn_title = title;
+    ctx.session.state = "admin_vpn_config";
+    await ctx.reply("VPN kody ýazyň: 🌐");
+    return { success: true, message: "VPN title kabul edildi." };
   } else if (state === "admin_vpn_config") {
     if (ctx.from.id !== ADMIN_ID) {
       ctx.session = { started: ctx.session.started };
       await ctx.reply("Bu funksiýa diňe adminler üçin. 🚫");
       return { success: false, message: "Ygtyýarsyz funksiýa." };
     }
-    const vpnConfig = sanitizeInput(ctx.message.text);
-    if (!vpnConfig) {
-      await ctx.reply("VPN konfigurasiýasyny ýazyň (mysal: vpnblahblah). 🚫");
-      return { success: false, message: "VPN konfigurasiýasy berilmedi." };
+    const vpnCode = sanitizeInput(ctx.message.text);
+    if (!vpnCode) {
+      await ctx.reply("VPN kody ýazyň. 🚫");
+      return { success: false, message: "VPN kody berilmedi." };
     }
-    currentVpn = vpnConfig;
-    const setResult = await setSetting("current_vpn", vpnConfig);
+    const title = ctx.session.vpn_title;
+    currentVpn = `${title}\n\`${vpnCode}\`\n#sbp31PosterBot`;
+    const setResult = await setSetting("current_vpn", currentVpn);
     if (!setResult.success) {
       await ctx.reply(`Ýalňyşlyk: ${setResult.message} 😔`);
       ctx.session = { started: ctx.session.started };
@@ -1492,6 +1520,12 @@ bot.on("text", async (ctx) => {
     await ctx.reply(
       `Ulanyjy ${targetUserId} abunalygy ${type} boldy, ${days} gün. 🎉`
     );
+    try {
+      await bot.telegram.sendMessage(
+        targetUserId,
+        "Abunaňyz üstünlikli täzelendi! 🎉"
+      );
+    } catch (err) {}
     ctx.session = { started: ctx.session.started };
     await showMainKeyboard(ctx);
     return { success: true, message: "Abunalyk üstünlikli täzelendi." };
@@ -1668,6 +1702,23 @@ bot.on("text", async (ctx) => {
     ctx.session = { started: ctx.session.started };
     await showMainKeyboard(ctx);
     return { success: true, message: "Ban habary üstünlikli bellenildi." };
+  } else if (state === "broadcast_message") {
+    if (ctx.from.id !== ADMIN_ID) {
+      ctx.session = { started: ctx.session.started };
+      await ctx.reply("Bu funksiýa diňe adminler üçin. 🚫");
+      return { success: false, message: "Ygtyýarsyz funksiýa." };
+    }
+    const broadcastText = ctx.message.text;
+    const users = await usersCollection.find({}).toArray();
+    for (const user of users) {
+      try {
+        await bot.telegram.sendMessage(user._id, broadcastText);
+      } catch (err) {}
+    }
+    await ctx.reply("Habar ähli ulanyjylara ugradyldy! 📢");
+    ctx.session = { started: ctx.session.started };
+    await showMainKeyboard(ctx);
+    return { success: true, message: "Broadcast üstünlikli ugradyldy." };
   }
   return { success: false, message: "Bilinmedik ýagdaý." };
 });
@@ -1755,9 +1806,15 @@ bot.hears(/^maslahaty täzele\s+(\S+)\s+([^\s]+)\s+"([^"]+)"$/i, async (ctx) => 
   return { success: true, message: "Maslahat üstünlikli täzelendi." };
 });
 
-bot.catch((err, ctx) => {
-  console.error(`Global ýalňyşlyk ${ctx.updateType}:`, err.message, err.stack);
-  ctx.reply("Ýalňyşlyk ýüze çykdy. Täzeden synan. 😔");
+bot.catch(async (err, ctx) => {
+  try {
+    if (ctx && ctx.reply) {
+      await ctx.reply("Ýalňyşlyk ýüze çykdy. Täzeden synan. 😔");
+    }
+  } catch (replyErr) {
+    console.error("Failed to send error message:", replyErr.message);
+  }
+  console.error("Global error:", err.message);
   return { success: false, message: `Global ýalňyşlyk: ${err.message}` };
 });
 
@@ -1765,12 +1822,10 @@ bot.catch((err, ctx) => {
   try {
     const connectResult = await connectMongo();
     if (!connectResult.success) {
-      console.error(connectResult.message);
       process.exit(1);
     }
     const initResult = await initSchedules();
     if (!initResult.success) {
-      console.error(initResult.message);
       process.exit(1);
     }
     vpnInterval = setInterval(async () => {
@@ -1789,43 +1844,60 @@ bot.catch((err, ctx) => {
             await bot.telegram.sendMessage(user.vpn_channel, currentVpn);
             user.last_vpn_sent = Date.now();
             const updateResult = await updateUser(user);
-            if (!updateResult.success) {
-              console.error(
-                `Ulanyjy ${user._id} täzelemek başarmady:`,
-                updateResult.message
-              );
-            } else {
-              console.log(
-                `VPN ${user.vpn_channel} kanalyna ugradyldy, ulanyjy: ${user._id}`
-              );
-            }
-          } catch (err) {
-            console.error(
-              `VPN ${user.vpn_channel} kanalyna ugratmak başarmady:`,
-              err.message
-            );
-          }
+          } catch (err) {}
         }
       }
     }, 3600000);
+    reminderInterval = setInterval(async () => {
+      const now = new Date();
+      if (now.getDay() === 0) {
+        try {
+          await bot.telegram.sendMessage(
+            ADMIN_ID,
+            "Hepde gutarýar, VPN kody üýtgetmegi ýatdan çykarmaň! 🔄"
+          );
+        } catch (err) {}
+      }
+    }, 86400000);
+    weeklyGiftInterval = setInterval(async () => {
+      const candidates = await usersCollection
+        .find({ subscription: { $ne: "ultra" } })
+        .toArray();
+      if (candidates.length === 0) return;
+      const winner = candidates[Math.floor(Math.random() * candidates.length)];
+      winner.subscription = "ultra";
+      winner.expiration = Date.now() + 3 * 86400000;
+      await updateUser(winner);
+      try {
+        await bot.telegram.sendMessage(
+          winner._id,
+          "Gutlaýarys! Siz hepdelik utuşda Ultra VIP 3 gün aldňyz! 🎁"
+        );
+      } catch (err) {}
+      await weeklyWinnersCollection.insertOne({
+        user_id: winner._id,
+        username: winner.username,
+        date: Date.now(),
+      });
+    }, 604800000);
     bot.launch();
-    console.log("Bot işläp başlady... 🚀");
   } catch (err) {
-    console.error("Boty başlatmak başarmady:", err.message);
     process.exit(1);
   }
 })();
 
 process.once("SIGINT", async () => {
-  console.log("SIGINT aldy, bot duruzylýar...");
   Object.values(intervals).forEach((interval) => clearInterval(interval));
   clearInterval(vpnInterval);
+  clearInterval(weeklyGiftInterval);
+  clearInterval(reminderInterval);
   bot.stop("SIGINT");
 });
 
 process.once("SIGTERM", async () => {
-  console.log("SIGTERM aldy, bot duruzylýar...");
   Object.values(intervals).forEach((interval) => clearInterval(interval));
   clearInterval(vpnInterval);
+  clearInterval(weeklyGiftInterval);
+  clearInterval(reminderInterval);
   bot.stop("SIGTERM");
 });

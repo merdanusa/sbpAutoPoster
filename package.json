@@ -13,10 +13,12 @@
   "type": "commonjs",
   "dependencies": {
     "dotenv": "^17.2.1",
-    "mongodb": "^6.18.0",
+    "mongodb": "^6.19.0",
+    "node-fetch": "^3.3.2",
     "node-schedule": "^2.1.1",
     "telegraf": "^4.16.3",
     "telegraf-session-mongodb": "^2.0.2",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "whatwg-url": "^14.2.0"
   }
 }
