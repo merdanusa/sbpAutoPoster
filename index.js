@@ -8,6 +8,7 @@ const path = require("path");
 const MONGO_URI =
   process.env.MONGO_URI ||
   "mongodb+srv://sbp31bot:iR5nObb0cm3JI5hj@sbp31bot.fnh49f1.mongodb.net/AutoPoster?retryWrites=true&w=majority&appName=sbp31bot";
+
 const COVER_PHOTO = path.join(__dirname, "media/cover.jpg");
 const ADMIN_ID = 7437546679;
 const TRIAL_DAYS = 99999;
@@ -71,6 +72,7 @@ async function connectMongo() {
     usersCollection = db.collection("users");
     settingsCollection = db.collection("settings");
     transactionsCollection = db.collection("transactions");
+
     const loadedSchedules = await schedulesCollection.find({}).toArray();
     schedules = loadedSchedules.map((sch) => {
       const newSch = { ...sch, id: sch._id };
@@ -78,22 +80,13 @@ async function connectMongo() {
       if (typeof newSch.active === "undefined") newSch.active = true;
       return newSch;
     });
+
     const vpnSetting = await settingsCollection.findOne({ _id: "current_vpn" });
     currentVpn = vpnSetting ? vpnSetting.value : "";
-    console.log(
-      "MongoDB baglantysy üstünlikli ýerine ýetirildi, ýüklenen maslahatlar:",
-      schedules.length
-    );
-    return {
-      success: true,
-      message: "MongoDB baglantysy üstünlikli ýerine ýetirildi.",
-    };
+
+    return { success: true, message: "MongoDB baglantysy üstünlikli ýerine ýetirildi." };
   } catch (err) {
-    console.error("MongoDB baglantysy başarmady:", err.message);
-    return {
-      success: false,
-      message: `MongoDB baglantysy başarmady: ${err.message}`,
-    };
+    return { success: false, message: `MongoDB baglantysy başarmady: ${err.message}` };
   }
 }
 
@@ -108,14 +101,9 @@ async function saveSchedules() {
         { upsert: true }
       );
     }
-    console.log("Maslahatlar üstünlikli ýazyldy! 📋");
     return { success: true, message: "Maslahatlar üstünlikli ýazyldy." };
   } catch (err) {
-    console.error("Maslahatlary ýazmakda ýalňyşlyk:", err.message);
-    return {
-      success: false,
-      message: `Maslahatlary ýazmakda ýalňyşlyk: ${err.message}`,
-    };
+    return { success: false, message: `Maslahatlary ýazmakda ýalňyşlyk: ${err.message}` };
   }
 }
 
@@ -123,6 +111,7 @@ async function initSchedules() {
   try {
     Object.values(intervals).forEach((interval) => clearInterval(interval));
     intervals = {};
+
     for (const [index, sch] of schedules.entries()) {
       if (!sch.active) continue;
       try {
@@ -132,39 +121,24 @@ async function initSchedules() {
             if (sch.last_message_id) {
               await bot.telegram
                 .deleteMessage(sch.chat_id, sch.last_message_id)
-                .catch((err) => {
-                  console.error(
-                    `${sch.chat_id} kanalynyň ${sch.last_message_id} ID-li habaryny pozmak başarmady:`,
-                    err.description || err.message
-                  );
-                });
+                .catch(() => {});
             }
             let message;
             if (sch.media_url) {
-              console.log(
-                `${sch.chat_id} kanalyna ýazýar: ${sch.text}, media: ${sch.media_url}`
-              );
               message = await bot.telegram.sendPhoto(
                 sch.chat_id,
                 sch.media_url,
-                {
-                  caption: sch.text,
-                }
+                { caption: sch.text }
               );
             } else {
-              console.log(`${sch.chat_id} kanalyna ýazýar: ${sch.text}`);
               message = await bot.telegram.sendMessage(sch.chat_id, sch.text);
             }
             sch.last_message_id = message.message_id;
             await saveSchedules();
           } catch (err) {
-            console.error(
-              `${sch.chat_id} kanalyna ýazmakda ýalňyşlyk:`,
-              err.description || err.message
-            );
             if (
-              err.description.includes("forbidden") ||
-              err.description.includes("not allowed")
+              err.description?.includes("forbidden") ||
+              err.description?.includes("not allowed")
             ) {
               await bot.telegram.sendMessage(
                 sch.user_id,
@@ -172,39 +146,25 @@ async function initSchedules() {
               );
             }
             if (err.code === 429) {
-              console.log(
-                "Çäk ýetdi, 5 sekuntdan soň gaýtadan synanyşýar... ⏳"
-              );
               setTimeout(() => {
                 if (intervals[sch.id]) intervals[sch.id]();
               }, 5000);
             }
           }
         }, Math.max(sch.interval * 1000, 30000));
-      } catch (err) {
-        console.error(
-          `${index} ID-li maslahaty ${sch.chat_id} kanaly üçin başlatmak başarmady:`,
-          err.description || err.message
-        );
-      }
+      } catch (err) {}
     }
-    console.log(
-      "Maslahatlar başlatyldy, işjeň aralyklar:",
-      Object.keys(intervals).length
-    );
+
     return { success: true, message: "Maslahatlar üstünlikli başlatyldy." };
   } catch (err) {
-    console.error("Maslahatlary başlatmak başarmady:", err.message);
-    return {
-      success: false,
-      message: `Maslahatlary başlatmak başarmady: ${err.message}`,
-    };
+    return { success: false, message: `Maslahatlary başlatmak başarmady: ${err.message}` };
   }
 }
 
 async function getUser(userId) {
   let user = await usersCollection.findOne({ _id: userId });
   if (!user) {
+    const isAdmin = userId === ADMIN_ID;
     user = {
       _id: userId,
       subscription: isAdmin ? "ultra" : "standard",
@@ -217,18 +177,15 @@ async function getUser(userId) {
     };
     const result = await usersCollection.insertOne(user);
     if (result.acknowledged) {
-      return {
-        success: true,
-        data: user,
-        message: "Täze ulanyjy üstünlikli döredildi.",
-      };
-    } else {
-      return { success: false, message: "Ulanyjy döretmek başarmady." };
+      return { success: true, data: user, message: "Täze ulanyjy üstünlikli döredildi." };
     }
+    return { success: false, message: "Ulanyjy döretmek başarmady." };
   }
+
   if (typeof user.spam_attempts === "undefined") user.spam_attempts = 0;
   if (typeof user.banned === "undefined") user.banned = false;
   if (typeof user.ban_message === "undefined") user.ban_message = null;
+
   return { success: true, data: user };
 }
 
@@ -239,18 +196,11 @@ async function updateUser(user) {
       { $set: user }
     );
     if (result.matchedCount > 0) {
-      return {
-        success: true,
-        message: "Ulanyjy maglumatlary üstünlikli täzelendi.",
-      };
-    } else {
-      return { success: false, message: "Ulanyjy tapylmady." };
+      return { success: true, message: "Ulanyjy maglumatlary üstünlikli täzelendi." };
     }
+    return { success: false, message: "Ulanyjy tapylmady." };
   } catch (err) {
-    return {
-      success: false,
-      message: `Ulanyjy täzelemek başarmady: ${err.message}`,
-    };
+    return { success: false, message: `Ulanyjy täzelemek başarmady: ${err.message}` };
   }
 }
 
@@ -258,31 +208,29 @@ async function getEffectiveSub(userId) {
   const userResult = await getUser(userId);
   if (!userResult.success) return "trial_expired";
   const user = userResult.data;
-  if (userId === ADMIN_ID) {
-    return "ultra";
-  }
+
+  if (userId === ADMIN_ID) return "ultra";
+
   if (user.expiration && user.expiration < Date.now()) {
     user.subscription = "trial_expired";
     user.expiration = null;
     await updateUser(user);
     return "trial_expired";
   }
+
   return user.subscription;
 }
 
 async function setSetting(key, value) {
   try {
-    const result = await settingsCollection.updateOne(
+    await settingsCollection.updateOne(
       { _id: key },
       { $set: { value } },
       { upsert: true }
     );
     return { success: true, message: "Aýratynlyk üstünlikli ýazyldy." };
   } catch (err) {
-    return {
-      success: false,
-      message: `Aýratynlyk ýazmak başarmady: ${err.message}`,
-    };
+    return { success: false, message: `Aýratynlyk ýazmak başarmady: ${err.message}` };
   }
 }
 
@@ -295,15 +243,9 @@ async function getMainKeyboard(effectiveSub, isAdmin) {
   if (effectiveSub !== "trial_expired") {
     buttons.push(["Maslahat goş 💫", "Maslahatlary gör 📋", "VPNlary gör 📋"]);
     const conditionalButtons = [];
-    if (effectiveSub === "ultra" || isAdmin) {
-      conditionalButtons.push("VPN goş 🌐");
-    }
-    if (isAdmin) {
-      conditionalButtons.push("Panel 🎛️");
-    }
-    if (conditionalButtons.length > 0) {
-      buttons.push(conditionalButtons);
-    }
+    if (effectiveSub === "ultra" || isAdmin) conditionalButtons.push("VPN goş 🌐");
+    if (isAdmin) conditionalButtons.push("Panel 🎛️");
+    if (conditionalButtons.length > 0) buttons.push(conditionalButtons);
   }
   return Markup.keyboard(buttons).resize();
 }
@@ -312,6 +254,7 @@ async function showMainKeyboard(ctx) {
   const effectiveSub = await getEffectiveSub(ctx.from.id);
   const isAdmin = ctx.from.id === ADMIN_ID;
   const keyboard = await getMainKeyboard(effectiveSub, isAdmin);
+
   try {
     await ctx.replyWithPhoto(
       { source: COVER_PHOTO },
@@ -323,26 +266,21 @@ async function showMainKeyboard(ctx) {
         ...keyboard,
       }
     );
-    return { success: true, message: "Baş menýu üstünlikli görkezildi." };
-  } catch (err) {
-    console.error("Surat ugratmak başarmady:", err.message);
+    return { success: true };
+  } catch {
     await ctx.reply(
       effectiveSub === "trial_expired"
         ? "Synag möhletiňiz gutardy! 😔 Boty ulanmak üçin abuna boluň."
         : "Bir amal saýlaň! 😊",
       keyboard
     );
-    return {
-      success: false,
-      message: `Baş menýu görkezmek başarmady: ${err.message}`,
-    };
+    return { success: false };
   }
 }
 
 bot.start(async (ctx) => {
   if (ctx.session?.started) return;
   ctx.session = { started: true };
-  console.log("Bot ulanyjy üçin başlady:", ctx.from?.id);
   await getUser(ctx.from.id);
   await showMainKeyboard(ctx);
 });
@@ -356,12 +294,11 @@ bot.command("pp_cmd", async (ctx) => {
 bot.hears("Profil 👤", async (ctx) => {
   const userId = ctx.from.id;
   const userResult = await getUser(userId);
-  if (!userResult.success) {
-    await ctx.reply(`Ýalňyşlyk: ${userResult.message} 😔`);
-    return userResult;
-  }
+  if (!userResult.success) return await ctx.reply(`Ýalňyşlyk: ${userResult.message} 😔`);
+
   const user = userResult.data;
   const effectiveSub = await getEffectiveSub(userId);
+
   const subInfo = `👤 Profil maglumatlary:
 Ulanyjy ID: ${user._id}
 Abunalyk: ${effectiveSub.charAt(0).toUpperCase() + effectiveSub.slice(1)}
@@ -378,28 +315,24 @@ Soňky VPN ugradylan: ${
       ? new Date(user.last_vpn_sent).toLocaleString()
       : "Hiç haçan"
   }`;
+
   await ctx.reply(
     subInfo,
     Markup.inlineKeyboard([
       [Markup.button.callback("Meniň söwdalarym 💳", "my_transactions")],
     ])
   );
-  return {
-    success: true,
-    message: "Profil maglumatlary üstünlikli görkezildi.",
-  };
 });
 
 bot.action("my_transactions", async (ctx) => {
   await ctx.answerCbQuery();
   const userId = ctx.from.id;
-  const trans = await transactionsCollection
-    .find({ user_id: userId })
-    .toArray();
+  const trans = await transactionsCollection.find({ user_id: userId }).toArray();
+
   if (trans.length === 0) {
-    await ctx.reply("Hiç hili söwda ýok. 😔");
-    return { success: true, message: "Söwda ýok." };
+    return await ctx.reply("Hiç hili söwda ýok. 😔");
   }
+
   for (const t of trans) {
     const info = `Söwda ID: ${t._id}\nDereje: ${
       t.type.charAt(0).toUpperCase() + t.type.slice(1)
@@ -408,45 +341,36 @@ bot.action("my_transactions", async (ctx) => {
     }\nSene: ${new Date(t.date).toLocaleString()}`;
     await ctx.reply(info);
   }
-  return { success: true, message: "Söwdalar görkezildi." };
 });
 
 bot.hears("Maslahat goş 💫", async (ctx) => {
   const effectiveSub = await getEffectiveSub(ctx.from.id);
   if (effectiveSub === "trial_expired") {
-    await ctx.reply(
+    return await ctx.reply(
       "Synag möhletiňiz gutardy! 😔 Boty ulanmak üçin abuna boluň.",
       Markup.inlineKeyboard([[Markup.button.callback("Dükan 🛒", "shop")]])
     );
-    return { success: false, message: "Synag möhleti gutardy." };
   }
+
   ctx.session = { state: "add_channel", started: ctx.session?.started || true };
   await ctx.reply("Kanal ID-ni ýazyň (mysal: @kanal ýa-da -1001234567890): 📢");
-  return {
-    success: true,
-    message: "Maslahat goşma soragy üstünlikli işledildi.",
-  };
 });
 
 bot.hears("Maslahatlary gör 📋", async (ctx) => {
   const effectiveSub = await getEffectiveSub(ctx.from.id);
   if (effectiveSub === "trial_expired") {
-    await ctx.reply(
-      "Synag möhletiňiz gutardy! 😔 Boty ulanmak üçin abuna boluň."
-    );
-    return { success: false, message: "Synag möhleti gutardy." };
+    return await ctx.reply("Synag möhletiňiz gutardy! 😔 Boty ulanmak üçin abuna boluň.");
   }
-  let userSchedules;
+
   const isAdmin = ctx.from.id === ADMIN_ID;
-  if (isAdmin) {
-    userSchedules = schedules;
-  } else {
-    userSchedules = schedules.filter((sch) => sch.user_id === ctx.from.id);
-  }
+  const userSchedules = isAdmin
+    ? schedules
+    : schedules.filter((sch) => sch.user_id === ctx.from.id);
+
   if (userSchedules.length === 0) {
-    await ctx.reply("Hiç hili maslahat tapylmady. 😔");
-    return { success: false, message: "Hiç hili maslahat tapylmady." };
+    return await ctx.reply("Hiç hili maslahat tapylmady. 😔");
   }
+
   for (const sch of userSchedules) {
     const info = `ID: ${sch.id}${
       isAdmin ? `\nUlanyjy: ${sch.user_id}` : ""
@@ -455,27 +379,17 @@ bot.hears("Maslahatlary gör 📋", async (ctx) => {
     }"${sch.media_url ? `\nMedia: ${sch.media_url} 🖼️` : ""}\nAktiw: ${
       sch.active ? "Hawa" : "Ýok"
     }`;
+
     await ctx.reply(
       info,
       Markup.inlineKeyboard([
-        [
-          Markup.button.callback(
-            sch.active ? "Duruz 🛑" : "Başla ▶️",
-            `toggle_${sch.id}`
-          ),
-        ],
+        [Markup.button.callback(sch.active ? "Duruz 🛑" : "Başla ▶️", `toggle_${sch.id}`)],
         [Markup.button.callback("Teksti üýtget ✏️", `change_text_${sch.id}`)],
-        [
-          Markup.button.callback(
-            "Wagt aralygyny üýtget ⏱️",
-            `change_interval_${sch.id}`
-          ),
-        ],
+        [Markup.button.callback("Wagt aralygyny üýtget ⏱️", `change_interval_${sch.id}`)],
         [Markup.button.callback("Poz 🗑️", `delete_${sch.id}`)],
       ])
     );
   }
-  return { success: true, message: "Maslahatlar üstünlikli görkezildi." };
 });
 
 bot.hears("VPNlary gör 📋", async (ctx) => {
@@ -1758,7 +1672,6 @@ bot.hears(/^maslahaty täzele\s+(\S+)\s+([^\s]+)\s+"([^"]+)"$/i, async (ctx) => 
 });
 
 bot.catch((err, ctx) => {
-  console.error(`Global ýalňyşlyk ${ctx.updateType}:`, err.message, err.stack);
   ctx.reply("Ýalňyşlyk ýüze çykdy. Täzeden synan. 😔");
   return { success: false, message: `Global ýalňyşlyk: ${err.message}` };
 });
@@ -1766,19 +1679,13 @@ bot.catch((err, ctx) => {
 (async () => {
   try {
     const connectResult = await connectMongo();
-    if (!connectResult.success) {
-      console.error(connectResult.message);
-      process.exit(1);
-    }
+    if (!connectResult.success) process.exit(1);
+
     const initResult = await initSchedules();
-    if (!initResult.success) {
-      console.error(initResult.message);
-      process.exit(1);
-    }
+    if (!initResult.success) process.exit(1);
+
     vpnInterval = setInterval(async () => {
-      const ultraUsers = await usersCollection
-        .find({ subscription: "ultra" })
-        .toArray();
+      const ultraUsers = await usersCollection.find({ subscription: "ultra" }).toArray();
       for (const user of ultraUsers) {
         const effectiveSub = await getEffectiveSub(user._id);
         if (effectiveSub !== "ultra") continue;
@@ -1790,43 +1697,25 @@ bot.catch((err, ctx) => {
           try {
             await bot.telegram.sendMessage(user.vpn_channel, currentVpn);
             user.last_vpn_sent = Date.now();
-            const updateResult = await updateUser(user);
-            if (!updateResult.success) {
-              console.error(
-                `Ulanyjy ${user._id} täzelemek başarmady:`,
-                updateResult.message
-              );
-            } else {
-              console.log(
-                `VPN ${user.vpn_channel} kanalyna ugradyldy, ulanyjy: ${user._id}`
-              );
-            }
-          } catch (err) {
-            console.error(
-              `VPN ${user.vpn_channel} kanalyna ugratmak başarmady:`,
-              err.message
-            );
-          }
+            await updateUser(user);
+          } catch {}
         }
       }
     }, 3600000);
+
     bot.launch();
-    console.log("Bot işläp başlady... 🚀");
-  } catch (err) {
-    console.error("Boty başlatmak başarmady:", err.message);
+  } catch {
     process.exit(1);
   }
 })();
 
 process.once("SIGINT", async () => {
-  console.log("SIGINT aldy, bot duruzylýar...");
   Object.values(intervals).forEach((interval) => clearInterval(interval));
   clearInterval(vpnInterval);
   bot.stop("SIGINT");
 });
 
 process.once("SIGTERM", async () => {
-  console.log("SIGTERM aldy, bot duruzylýar...");
   Object.values(intervals).forEach((interval) => clearInterval(interval));
   clearInterval(vpnInterval);
   bot.stop("SIGTERM");
